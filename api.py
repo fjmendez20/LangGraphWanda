@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import FastAPI, HTTPException
 # importacion de StreamingResponse para la respuestas Asyncronas
 from fastapi.responses import StreamingResponse
@@ -6,7 +7,7 @@ from typing import List
 
 # Importar el grafo compilado desde graph.py
 from graph import graph 
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 
 # --- Modelos de Pydantic ---
 # Define la estructura de la solicitud que recibirá la API
@@ -64,41 +65,22 @@ async def chat_endpoint(request: ChatRequest):
     )
 
 async def stream_generator(session_id: str, user_message: str):
-    """
-    Función generadora asíncrona que produce chunks de texto.
-    """
     user_msg_obj = HumanMessage(content=user_message)
     config = {"configurable": {"thread_id": session_id}}
     input_state = {"messages": [user_msg_obj]}
 
-    try:
-        # Usamos graph.stream()
-        async for event in graph.stream(input_state, config=config):
-            # El streaming en LangGraph devuelve eventos por cada paso.
-            # Solo nos interesa el contenido de la última actualización del historial.
-            
-            # Verificamos si el nodo que se acaba de ejecutar fue 'nodo1' (nuestro chatbot)
-            if 'nodo1' in event:
-                # El evento contiene el estado del grafo en ese paso.
-                messages = event['nodo1'].get("messages", [])
-                
-                # Buscamos el último mensaje (el chunk del AI)
-                if messages:
-                    last_message = messages[-1]
-                    
-                    # 💡 Extraemos el contenido. Como es un stream, vendrá chunk a chunk.
-                    if isinstance(last_message, BaseMessage) and last_message.content:
-                        # Devolvemos el texto recién generado.
-                        # NOTA: Debemos codificarlo para que el cliente lo reciba correctamente.
-                        yield last_message.content.encode('utf-8')
+    # ❗ Corrección: Usar 'graph.astream()' y mantener 'async for'
+    # Esto asume que Groq puede ejecutar astream de forma nativa.
+    async for event in graph.astream(input_state, config=config):
         
-        # Opcional: Una vez que el stream termina, enviamos un marcador de fin
-        # yield b'\\n' 
-
-    except Exception as e:
-        print(f"Error durante el streaming: {e}")
-        # Manejo de errores para enviar al cliente
-        yield f"ERROR: Fallo del agente ({e})".encode('utf-8')
+        if 'nodo1' in event:
+            # ... (el resto de tu lógica de extracción de chunks, igual que antes) ...
+            messages = event['nodo1'].get("messages", [])
+            if messages:
+                last_message = messages[-1]
+                
+                if isinstance(last_message, BaseMessage) and last_message.content:
+                    yield last_message.content.encode('utf-8')
 
 # --- Nuevo Endpoint de Streaming ---
 
